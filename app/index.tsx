@@ -3,17 +3,17 @@ import { router } from "expo-router";
 import { onAuthStateChanged, signInWithEmailAndPassword } from "firebase/auth";
 import React, { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
-    SafeAreaView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { auth } from "../firebase"; // adjust path if needed
+import { SafeAreaView } from "react-native-safe-area-context";
+import { auth } from "../firebase";
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");

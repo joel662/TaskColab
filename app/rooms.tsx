@@ -21,7 +21,7 @@ import {
   Query,
   where,
 } from "firebase/firestore";
-import { auth, db } from "../../firebase"; // adjust if needed
+import { auth, db } from "../firebase";
 
 type Room = {
   id: string;
@@ -139,7 +139,7 @@ export default function Rooms() {
         <Text style={styles.title}>You’re not signed in</Text>
         <TouchableOpacity
           style={styles.btn}
-          onPress={() => router.replace("/login")}
+          onPress={() => router.replace("/")}
         >
           <Text style={styles.btnText}>Go to Login</Text>
         </TouchableOpacity>
@@ -166,7 +166,10 @@ export default function Rooms() {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.roomItem}
-            onPress={() => router.push(`/room/${item.id}`)}
+            onPress={() => {
+              console.log("Navigating to room:", item.id, item.name);
+              router.push(`/room/${item.id}`);
+            }}
           >
             <Text style={styles.roomName}>{item.name}</Text>
             {item.code ? (

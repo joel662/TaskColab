@@ -5,7 +5,7 @@ import {
   DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 import * as Notifications from "expo-notifications";
-import { router, useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -22,7 +22,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import DraggableFlatList, { RenderItemParams } from "react-native-draggable-flatlist";
+// import DraggableFlatList, { RenderItemParams } from "react-native-draggable-flatlist";
 
 import {
   addDoc,
@@ -40,26 +40,19 @@ import {
   Timestamp,
   updateDoc,
 } from "firebase/firestore";
+// @ts-ignore - Firebase auth type issues
 import { auth, db } from "../../firebase";
 
 // iOS-only inline picker (avoid mounting Android component)
-let IOSDateTimePicker: any;
+let IOSDateTimePicker: any = null;
 if (Platform.OS === "ios") {
-  IOSDateTimePicker = require("@react-native-community/datetimepicker").default;
+  try {
+    IOSDateTimePicker = require("@react-native-community/datetimepicker").default;
+  } catch (error) {
+    console.warn("DateTimePicker not available:", error);
+  }
 }
 
-/** ---- Notifications global handler (cast covers SDK diffs) ---- */
-Notifications.setNotificationHandler({
-  handleNotification: async () =>
-    ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-      // iOS-only keys; harmless on Android. Remove if your SDK types complain.
-      shouldShowBanner: true,
-      shouldShowList: true,
-    } as any),
-});
 
 type UserDoc = { uid: string; displayName?: string; email?: string };
 type Task = {
@@ -104,7 +97,9 @@ const REMINDER_CHOICES: Array<{ label: string; minutes: number | null }> = [
 
 export default function RoomDetail() {
   const { roomId } = useLocalSearchParams<{ roomId: string }>();
-  const uid = auth.currentUser?.uid;
+  const uid = auth?.currentUser?.uid;
+
+  console.log("RoomDetail - roomId:", roomId, "uid:", uid);
 
   const [roomName, setRoomName] = useState("");
   const [members, setMembers] = useState<UserDoc[]>([]);
@@ -113,7 +108,7 @@ export default function RoomDetail() {
 
   // view/filter
   const [onlyMine, setOnlyMine] = useState(false);
-  const [manualOrder, setManualOrder] = useState(true);
+  // const [manualOrder, setManualOrder] = useState(true);
 
   // create modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -127,55 +122,43 @@ export default function RoomDetail() {
   const [tags, setTags] = useState<string[]>(["todo"]);
   const [reminderOffsetMin, setReminderOffsetMin] = useState<number | null>(30);
 
-  /** ---- Permissions & Android channel once on mount ---- */
-  useEffect(() => {
-    (async () => {
-      const { status, granted } = await Notifications.getPermissionsAsync();
-      if (!granted && status !== Notifications.PermissionStatus.GRANTED) {
-        await Notifications.requestPermissionsAsync({
-          ios: {
-            allowAlert: true,
-            allowBadge: true,
-            allowSound: true,
-          },
-        });
-      }
-      if (Platform.OS === "android") {
-        await Notifications.setNotificationChannelAsync("due-reminders", {
-          name: "Due Reminders",
-          importance: Notifications.AndroidImportance.DEFAULT,
-          sound: "default",
-        });
-      }
-    })();
-  }, []);
 
   /** ---- Load room & members ---- */
   useEffect(() => {
     if (!roomId) return;
     (async () => {
-      const rs = await getDoc(doc(db, "rooms", String(roomId)));
-      if (rs.exists()) {
-        const r = rs.data() as any;
-        setRoomName(r.name || "Room");
-        const memberUids: string[] = r.members || [];
-        const loaded: UserDoc[] = [];
-        await Promise.all(
-          memberUids.map(async (m) => {
-            const u = await getDoc(doc(db, "users", m));
-            if (u.exists()) {
-              const d = u.data() as any;
-              loaded.push({
-                uid: m,
-                displayName: d.displayName || undefined,
-                email: d.email || undefined,
-              });
-            } else {
-              loaded.push({ uid: m });
-            }
-          })
-        );
-        setMembers(loaded);
+      try {
+        const rs = await getDoc(doc(db, "rooms", String(roomId)));
+        if (rs.exists()) {
+          const r = rs.data() as any;
+          setRoomName(r.name || "Room");
+          const memberUids: string[] = r.members || [];
+          const loaded: UserDoc[] = [];
+          await Promise.all(
+            memberUids.map(async (m) => {
+              try {
+                const u = await getDoc(doc(db, "users", m));
+                if (u.exists()) {
+                  const d = u.data() as any;
+                  loaded.push({
+                    uid: m,
+                    displayName: d.displayName || undefined,
+                    email: d.email || undefined,
+                  });
+                } else {
+                  loaded.push({ uid: m });
+                }
+              } catch (error) {
+                console.warn(`Failed to load user ${m}:`, error);
+                loaded.push({ uid: m });
+              }
+            })
+          );
+          setMembers(loaded);
+        }
+      } catch (error) {
+        console.error("Failed to load room:", error);
+        setLoading(false);
       }
     })();
   }, [roomId]);
@@ -204,17 +187,28 @@ export default function RoomDetail() {
     const unsub = onSnapshot(
       qToUse,
       (snap) => {
-        const list: Task[] = [];
-        snap.forEach((d) => list.push({ id: d.id, ...(d.data() as any) }));
-        setTasks(list);
-        setLoading(false);
+        try {
+          const list: Task[] = [];
+          snap.forEach((d) => {
+            try {
+              list.push({ id: d.id, ...(d.data() as any) });
+            } catch (error) {
+              console.warn("Failed to parse task data:", error);
+            }
+          });
+          setTasks(list);
+          setLoading(false);
+        } catch (error) {
+          console.error("Error processing tasks snapshot:", error);
+          setLoading(false);
+        }
       },
       (err: any) => {
         if (err?.code === "failed-precondition" && !useFallbackQuery) {
           console.warn("[tasks] missing composite index; switching to fallback.");
           setUseFallbackQuery(true);
         } else {
-          console.error(err);
+          console.error("Tasks query error:", err);
           setLoading(false);
         }
       }
@@ -250,9 +244,9 @@ export default function RoomDetail() {
   }, [tasks, uid]);
 
   const viewTasks = useMemo(() => {
-    const base = manualOrder ? tasks : urgencySorted;
+    const base = urgencySorted;
     return onlyMine && uid ? base.filter((t) => (t.assignees || []).includes(uid)) : base;
-  }, [tasks, urgencySorted, onlyMine, uid, manualOrder]);
+  }, [urgencySorted, onlyMine, uid]);
 
   /** ---- Helpers ---- */
   const memberLabel = (u: UserDoc) => u.displayName || u.email || u.uid.slice(0, 6);
@@ -294,54 +288,65 @@ export default function RoomDetail() {
   const androidPickingRef = useRef(false);
   const openAndroidDateTime = () => {
     if (androidPickingRef.current) return;
-    androidPickingRef.current = true;
+    
+    try {
+      androidPickingRef.current = true;
 
-    const current = dueDate || new Date();
+      const current = dueDate || new Date();
 
-    DateTimePickerAndroid.open({
-      value: current,
-      mode: "date",
-      display: "calendar",
-      onChange: (event: DateTimePickerEvent, selectedDate?: Date) => {
-        if (event.type !== "set" || !selectedDate) {
-          androidPickingRef.current = false;
-          return;
-        }
-        const base = new Date(
-          selectedDate.getFullYear(),
-          selectedDate.getMonth(),
-          selectedDate.getDate(),
-          current.getHours(),
-          current.getMinutes(),
-          0,
-          0
-        );
+      DateTimePickerAndroid.open({
+        value: current,
+        mode: "date",
+        display: "calendar",
+        onChange: (event: DateTimePickerEvent, selectedDate?: Date) => {
+          if (event.type !== "set" || !selectedDate) {
+            androidPickingRef.current = false;
+            return;
+          }
+          const base = new Date(
+            selectedDate.getFullYear(),
+            selectedDate.getMonth(),
+            selectedDate.getDate(),
+            current.getHours(),
+            current.getMinutes(),
+            0,
+            0
+          );
 
-        setTimeout(() => {
-          DateTimePickerAndroid.open({
-            value: base,
-            mode: "time",
-            is24Hour: false,
-            display: "spinner",
-            onChange: (timeEvent: DateTimePickerEvent, time?: Date) => {
+          setTimeout(() => {
+            try {
+              DateTimePickerAndroid.open({
+                value: base,
+                mode: "time",
+                is24Hour: false,
+                display: "spinner",
+                onChange: (timeEvent: DateTimePickerEvent, time?: Date) => {
+                  androidPickingRef.current = false;
+                  if (timeEvent.type !== "set" || !time) return;
+
+                  const finalDate = new Date(
+                    base.getFullYear(),
+                    base.getMonth(),
+                    base.getDate(),
+                    time.getHours(),
+                    time.getMinutes(),
+                    0,
+                    0
+                  );
+                  setDueDate(finalDate);
+                },
+              });
+            } catch (error) {
+              console.error("Error opening time picker:", error);
               androidPickingRef.current = false;
-              if (timeEvent.type !== "set" || !time) return;
-
-              const finalDate = new Date(
-                base.getFullYear(),
-                base.getMonth(),
-                base.getDate(),
-                time.getHours(),
-                time.getMinutes(),
-                0,
-                0
-              );
-              setDueDate(finalDate);
-            },
-          });
-        }, 50);
-      },
-    });
+            }
+          }, 50);
+        },
+      });
+    } catch (error) {
+      console.error("Error opening date picker:", error);
+      androidPickingRef.current = false;
+    }
   };
 
   /** ---- Notifications helpers ---- */
@@ -540,9 +545,9 @@ export default function RoomDetail() {
     );
   };
 
-  // For DraggableFlatList
-  const renderDraggableItem = ({ item, drag, isActive }: RenderItemParams<Task>) =>
-    renderTaskCard(item, drag, isActive);
+  // For DraggableFlatList (removed for Expo Go compatibility)
+  // const renderDraggableItem = ({ item, drag, isActive }: RenderItemParams<Task>) =>
+  //   renderTaskCard(item, drag, isActive);
 
   // For FlatList
   const renderFlatListItem: ListRenderItem<Task> = ({ item }) => renderTaskCard(item);
@@ -560,9 +565,6 @@ export default function RoomDetail() {
     <View style={styles.container}>
       {/* header */}
       <View style={styles.headerRow}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.back}>&lt; Back</Text>
-        </TouchableOpacity>
         <Text style={styles.header}>{roomName}</Text>
         <View style={{ width: 60 }} />
       </View>
@@ -575,31 +577,20 @@ export default function RoomDetail() {
         </View>
         <View style={styles.switchRow}>
           <Text style={styles.switchLabel}>
-            {manualOrder ? "Manual order (drag)" : "Urgency order"}
+            Urgency order
             {useFallbackQuery ? "  • (fallback sort)" : ""}
           </Text>
-          <Switch value={manualOrder} onValueChange={setManualOrder} />
         </View>
       </View>
 
       {/* list */}
-      {manualOrder ? (
-        <DraggableFlatList
-          data={viewTasks}
-          keyExtractor={(t) => t.id}
-          onDragEnd={onDragEnd}
-          contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
-          renderItem={renderDraggableItem}
-        />
-      ) : (
-        <FlatList
-          data={viewTasks}
-          keyExtractor={(t) => t.id}
-          contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
-          renderItem={renderFlatListItem}
-          ListEmptyComponent={<Text style={styles.empty}>No tasks.</Text>}
-        />
-      )}
+      <FlatList
+        data={viewTasks}
+        keyExtractor={(t) => t.id}
+        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
+        renderItem={renderFlatListItem}
+        ListEmptyComponent={<Text style={styles.empty}>No tasks.</Text>}
+      />
 
       {/* FAB */}
       <TouchableOpacity style={styles.fab} onPress={openNewTask}>
@@ -639,7 +630,7 @@ export default function RoomDetail() {
             </View>
 
             {/* Inline picker rendered only on iOS */}
-            {Platform.OS === "ios" && showPicker && (
+            {Platform.OS === "ios" && showPicker && IOSDateTimePicker && (
               <IOSDateTimePicker
                 value={dueDate || new Date()}
                 mode="datetime"

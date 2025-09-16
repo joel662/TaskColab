@@ -1,6 +1,6 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
-import { initializeAuth } from 'firebase/auth';
+import { getAuth, initializeAuth, type Auth } from 'firebase/auth';
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from 'firebase/storage';
 
@@ -19,6 +19,22 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-export const auth = initializeAuth(app);
+
+// Initialize Auth with proper error handling for React Native
+let auth: Auth;
+try {
+  auth = initializeAuth(app, {
+    persistence: {
+      type: 'LOCAL'
+    }
+  });
+} catch (error) {
+  // If initializeAuth fails (e.g., already initialized), use getAuth
+  console.warn('Auth already initialized, using getAuth:', error);
+  auth = getAuth(app);
+}
+
+export type { Auth } from 'firebase/auth';
+export { auth };
 export const db = getFirestore(app);
 export const storage = getStorage(app);
