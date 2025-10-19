@@ -9,12 +9,12 @@ import { getStorage } from 'firebase/storage';
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyBB9mCtbtIOPjmSB3xHrSICmhgR0MMFTWc",
-  authDomain: "taskcolab-677bf.firebaseapp.com",
-  projectId: "taskcolab-677bf",
-  storageBucket: "taskcolab-677bf.firebasestorage.app",
-  messagingSenderId: "339650089124",
-  appId: "1:339650089124:web:e36820145d89e795731631"
+  apiKey: API_KEY,
+  authDomain:AUTH_DOMAIN,
+  projectId: PROJECT_ID,
+  storageBucket:STORAGE_BUCKET,
+  messagingSenderId: MESSAGING_SENDER_ID,
+  appId: APP_ID
 };
 
 // Initialize Firebase
